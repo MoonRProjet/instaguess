@@ -6,6 +6,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
 import 'package:url_launcher/url_launcher.dart';
+import 'dart:convert';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -49,80 +50,118 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// --- 2. COFFRE-FORT (Version Cliquable) ---
+// --- 2. COFFRE-FORT (Version Cliquable + Différent Dossiers) ---
 class LinkManager extends StatefulWidget {
   @override
   _LinkManagerState createState() => _LinkManagerState();
 }
 
 class _LinkManagerState extends State<LinkManager> {
-  List<String> myLinks = [];
-  final TextEditingController _ctrl = TextEditingController();
+  // Structure : {"Humour": ["lien1", "lien2"], "Foot": ["lien3"]}
+  Map<String, List<String>> folders = {"Général": []};
+  String currentFolder = "Général";
+  final TextEditingController _linkCtrl = TextEditingController();
+  final TextEditingController _folderCtrl = TextEditingController();
 
   @override
-  void initState() { super.initState(); _load(); }
-  
-  void _load() async { 
-    SharedPreferences p = await SharedPreferences.getInstance(); 
-    setState(() => myLinks = p.getStringList('saved_reels') ?? []); 
-  }
-  
-  void _save() async { 
-    SharedPreferences p = await SharedPreferences.getInstance(); 
-    p.setStringList('saved_reels', myLinks); 
+  void initState() { super.initState(); _loadData(); }
+
+  // CHARGEMENT : On transforme le texte JSON en Map
+  void _loadData() async {
+    SharedPreferences p = await SharedPreferences.getInstance();
+    String? jsonStr = p.getString('folders_data');
+    if (jsonStr != null) {
+      Map<String, dynamic> decoded = jsonDecode(jsonStr);
+      setState(() {
+        folders = decoded.map((key, value) => MapEntry(key, List<String>.from(value)));
+      });
+    }
   }
 
-  // Fonction pour ouvrir le lien
-  Future<void> _launchReel(String urlString) async {
-    final Uri url = Uri.parse(urlString);
-    // mode: LaunchMode.externalApplication permet d'ouvrir directement l'app Instagram
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Impossible d'ouvrir ce lien"), backgroundColor: Colors.red),
-      );
+  // SAUVEGARDE : On transforme la Map en texte JSON
+  void _saveData() async {
+    SharedPreferences p = await SharedPreferences.getInstance();
+    await p.setString('folders_data', jsonEncode(folders));
+  }
+
+  void _addFolder() {
+    if (_folderCtrl.text.isNotEmpty && !folders.containsKey(_folderCtrl.text)) {
+      setState(() {
+        folders[_folderCtrl.text] = [];
+        _folderCtrl.clear();
+      });
+      _saveData();
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    List<String> myLinks = folders[currentFolder] ?? [];
+
     return Scaffold(
-      appBar: AppBar(title: Text("Mes Reels")),
-      body: Column(children: [
-        Padding(padding: EdgeInsets.all(10), child: Row(children: [
-          Expanded(child: TextField(controller: _ctrl, decoration: InputDecoration(hintText: "Lien Instagram"))),
+      appBar: AppBar(
+        title: Text("Coffre : $currentFolder"),
+        actions: [
           IconButton(
-            icon: Icon(Icons.add, color: Colors.green), 
-            onPressed: () { 
-              if(_ctrl.text.contains("insta")) { 
-                setState(() => myLinks.add(_ctrl.text.trim())); 
-                _ctrl.clear(); 
-                _save(); 
-              } 
-            }
+            icon: Icon(Icons.create_new_folder),
+            onPressed: () => _showFolderDialog(),
           )
+        ],
+      ),
+      body: Column(children: [
+        // 1. Sélecteur de Dossier (Barre horizontale)
+        Container(
+          height: 50,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            children: folders.keys.map((name) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 5),
+              child: ChoiceChip(
+                label: Text(name),
+                selected: currentFolder == name,
+                onSelected: (s) => setState(() => currentFolder = name),
+              ),
+            )).toList(),
+          ),
+        ),
+        
+        // 2. Ajout de lien
+        Padding(padding: EdgeInsets.all(10), child: Row(children: [
+          Expanded(child: TextField(controller: _linkCtrl, decoration: InputDecoration(hintText: "Lien Instagram"))),
+          IconButton(icon: Icon(Icons.add, color: Colors.green), onPressed: () {
+            if (_linkCtrl.text.contains("insta")) {
+              setState(() { folders[currentFolder]!.add(_linkCtrl.text.trim()); _linkCtrl.clear(); });
+              _saveData();
+            }
+          })
         ])),
+
+        // 3. Liste des liens du dossier actuel
         Expanded(
           child: ListView.builder(
-            itemCount: myLinks.length, 
+            itemCount: myLinks.length,
             itemBuilder: (c, i) => ListTile(
               leading: Icon(Icons.play_circle_fill, color: Colors.purpleAccent),
-              title: Text("Reel ${i+1}", style: TextStyle(fontWeight: FontWeight.bold)),
+              title: Text("Reel ${i+1}"),
               subtitle: Text(myLinks[i], maxLines: 1, overflow: TextOverflow.ellipsis),
-              // --- ACTION CLIC ---
-              onTap: () => _launchReel(myLinks[i]),
-              // ------------------
-              trailing: IconButton(
-                icon: Icon(Icons.delete, color: Colors.red), 
-                onPressed: () { 
-                  setState(() => myLinks.removeAt(i)); 
-                  _save(); 
-                }
-              )
-            )
-          )
+              onTap: () => launchUrl(Uri.parse(myLinks[i]), mode: LaunchMode.externalApplication),
+              trailing: IconButton(icon: Icon(Icons.delete, color: Colors.red), onPressed: () {
+                setState(() => folders[currentFolder]!.removeAt(i));
+                _saveData();
+              }),
+            ),
+          ),
         )
       ]),
     );
+  }
+
+  void _showFolderDialog() {
+    showDialog(context: context, builder: (c) => AlertDialog(
+      title: Text("Nouveau Dossier"),
+      content: TextField(controller: _folderCtrl, decoration: InputDecoration(hintText: "Nom (ex: Humour)")),
+      actions: [TextButton(onPressed: () { _addFolder(); Navigator.pop(c); }, child: Text("Créer"))],
+    ));
   }
 }
 
@@ -136,10 +175,34 @@ class _CreateRoomState extends State<CreateRoom> {
   String? code;
   final TextEditingController _name = TextEditingController();
   bool hostJoined = false;
+  
+  // Nouveaux champs pour les dossiers
+  Map<String, List<String>> myFolders = {};
+  String? selectedFolder;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFolders();
+  }
+
+  void _loadFolders() async {
+    var f = await getFolders();
+    setState(() {
+      myFolders = f;
+      selectedFolder = f.keys.first;
+    });
+  }
 
   void _create() async {
     String c = List.generate(4, (i) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Random().nextInt(32)]).join();
-    await FirebaseFirestore.instance.collection('rooms').doc(c).set({'status': 'waiting', 'videoLimit': 3, 'currentVideoIndex': 0, 'votesCount': 0, 'officialPlaylist': []});
+    await FirebaseFirestore.instance.collection('rooms').doc(c).set({
+      'status': 'waiting',
+      'videoLimit': 3,
+      'currentVideoIndex': 0,
+      'votesCount': 0,
+      'officialPlaylist': []
+    });
     setState(() => code = c);
   }
 
@@ -147,18 +210,34 @@ class _CreateRoomState extends State<CreateRoom> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text("Créer un Salon")),
-      body: Center(child: code == null 
+      body: Center(
+        child: code == null 
         ? ElevatedButton(onPressed: _create, child: Text("GÉNÉRER CODE")) 
         : Padding(
             padding: EdgeInsets.all(20),
             child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
               Text("CODE : $code", style: TextStyle(fontSize: 50, color: Colors.purpleAccent, fontWeight: FontWeight.bold)),
               if (!hostJoined) ...[
+                // MENU DÉROULANT POUR CHOISIR LE DOSSIER
+                DropdownButton<String>(
+                  value: selectedFolder,
+                  isExpanded: true,
+                  items: myFolders.keys.map((f) => DropdownMenuItem(value: f, child: Text("Dossier : $f"))).toList(),
+                  onChanged: (v) => setState(() => selectedFolder = v),
+                ),
                 TextField(controller: _name, decoration: InputDecoration(labelText: "Ton Pseudo")),
                 ElevatedButton(onPressed: () async {
-                  SharedPreferences p = await SharedPreferences.getInstance();
-                  List<String> links = (p.getStringList('saved_reels') ?? []).take(3).toList();
-                  await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_name.text).set({'name': _name.text, 'urls': links, 'score': 0});
+                  if (_name.text.isEmpty) return;
+                  
+                  // On récupère les liens du dossier choisi et on en prend 3 au hasard
+                  List<String> links = List.from(myFolders[selectedFolder!] ?? []);
+                  links.shuffle();
+                  
+                  await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_name.text).set({
+                    'name': _name.text, 
+                    'urls': links.take(3).toList(), 
+                    'score': 0
+                  });
                   setState(() => hostJoined = true);
                 }, child: Text("REJOINDRE MON SALON")),
               ] else ...[
@@ -169,9 +248,16 @@ class _CreateRoomState extends State<CreateRoom> {
                   onPressed: () async {
                     var players = await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').get();
                     List<Map<String, dynamic>> playlist = [];
-                    for (var d in players.docs) { for (var u in d['urls']) { playlist.add({'name': d['name'], 'url': u}); } }
+                    for (var d in players.docs) { 
+                      for (var u in d['urls']) { 
+                        playlist.add({'name': d['name'], 'url': u}); 
+                      } 
+                    }
                     playlist.shuffle();
-                    await FirebaseFirestore.instance.collection('rooms').doc(code).update({'status': 'playing', 'officialPlaylist': playlist});
+                    await FirebaseFirestore.instance.collection('rooms').doc(code).update({
+                      'status': 'playing', 
+                      'officialPlaylist': playlist
+                    });
                     Navigator.push(context, MaterialPageRoute(builder: (c) => GameScreen(roomCode: code!, myName: _name.text)));
                   }, 
                   child: Text("LANCER LA PARTIE", style: TextStyle(color: Colors.white))
@@ -193,6 +279,24 @@ class JoinRoom extends StatefulWidget {
 class _JoinRoomState extends State<JoinRoom> {
   final TextEditingController _c = TextEditingController();
   final TextEditingController _n = TextEditingController();
+  
+  // Nouveaux champs pour les dossiers
+  Map<String, List<String>> myFolders = {};
+  String? selectedFolder;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFolders();
+  }
+
+  void _loadFolders() async {
+    var f = await getFolders();
+    setState(() {
+      myFolders = f;
+      selectedFolder = f.keys.first;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -203,15 +307,40 @@ class _JoinRoomState extends State<JoinRoom> {
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           TextField(controller: _c, decoration: InputDecoration(labelText: "Code")),
           TextField(controller: _n, decoration: InputDecoration(labelText: "Pseudo")),
+          SizedBox(height: 10),
+          
+          // MENU DÉROULANT POUR L'INVITÉ
+          if (myFolders.isNotEmpty)
+            DropdownButton<String>(
+              value: selectedFolder,
+              isExpanded: true,
+              items: myFolders.keys.map((f) => DropdownMenuItem(value: f, child: Text("Dossier : $f"))).toList(),
+              onChanged: (v) => setState(() => selectedFolder = v),
+            ),
+            
           SizedBox(height: 20),
           ElevatedButton(onPressed: () async {
             String code = _c.text.toUpperCase();
+            String pseudo = _n.text.trim();
+            if (code.isEmpty || pseudo.isEmpty) return;
+
             var room = await FirebaseFirestore.instance.collection('rooms').doc(code).get();
-            if (!room.exists) return;
-            SharedPreferences p = await SharedPreferences.getInstance();
-            List<String> links = (p.getStringList('saved_reels') ?? []).take(3).toList();
-            await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_n.text).set({'name': _n.text, 'urls': links, 'score': 0});
-            Navigator.push(context, MaterialPageRoute(builder: (c) => WaitingScreen(roomCode: code, myName: _n.text)));
+            if (!room.exists) {
+               ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Salon introuvable")));
+               return;
+            }
+
+            // On récupère les liens du dossier sélectionné
+            List<String> links = List.from(myFolders[selectedFolder!] ?? []);
+            links.shuffle();
+
+            await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(pseudo).set({
+              'name': pseudo, 
+              'urls': links.take(3).toList(), 
+              'score': 0
+            });
+            
+            Navigator.push(context, MaterialPageRoute(builder: (c) => WaitingScreen(roomCode: code, myName: pseudo)));
           }, child: Text("REJOINDRE LE GROUPE"))
         ]),
       ),
@@ -389,4 +518,16 @@ class ScoreBoard extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<Map<String, List<String>>> getFolders() async {
+  SharedPreferences p = await SharedPreferences.getInstance();
+  String? jsonStr = p.getString('folders_data');
+  if (jsonStr != null) {
+    Map<String, dynamic> decoded = jsonDecode(jsonStr);
+    return decoded.map((k, v) => MapEntry(k, List<String>.from(v)));
+  }
+  // Si l'utilisateur n'a pas encore créé de dossiers, on récupère ses anciens liens
+  List<String> oldLinks = p.getStringList('saved_reels') ?? [];
+  return {"Général": oldLinks};
 }
