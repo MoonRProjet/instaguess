@@ -7,6 +7,34 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:video_player/video_player.dart';
+import 'package:chewie/chewie.dart';
+
+Future<String?> getMp4Url(String instagramUrl) async {
+  var headers = {
+    'Content-Type': 'application/json',
+    'x-rapidapi-key': 'f7a127bc67msh305c85913d9ffecp16cd53jsn7942f8ca8270', // Remplace par ta clé
+    'x-rapidapi-host': 'instagram120.p.rapidapi.com'
+  };
+
+  var request = http.Request('POST', Uri.parse('https://instagram120.p.rapidapi.com/api/instagram/links'));
+  request.body = json.encode({"url": instagramUrl});
+  request.headers.addAll(headers);
+
+  try {
+    http.StreamedResponse response = await request.send();
+    if (response.statusCode == 200) {
+      String body = await response.stream.bytesToString();
+      var data = jsonDecode(body);
+      // Selon ton JSON, c'est une liste [] qui contient un objet {}
+      return data[0]['urls'][0]['url']; 
+    }
+  } catch (e) {
+    print("Erreur API : $e");
+  }
+  return null;
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -175,8 +203,6 @@ class _CreateRoomState extends State<CreateRoom> {
   String? code;
   final TextEditingController _name = TextEditingController();
   bool hostJoined = false;
-  
-  // Nouveaux champs pour les dossiers
   Map<String, List<String>> myFolders = {};
   String? selectedFolder;
 
@@ -184,6 +210,15 @@ class _CreateRoomState extends State<CreateRoom> {
   void initState() {
     super.initState();
     _loadFolders();
+  }
+
+  // Nettoyage automatique si on quitte l'écran ou ferme l'app
+  @override
+  void dispose() {
+    if (code != null && !hostJoined) {
+      FirebaseFirestore.instance.collection('rooms').doc(code).delete();
+    }
+    super.dispose();
   }
 
   void _loadFolders() async {
@@ -208,63 +243,67 @@ class _CreateRoomState extends State<CreateRoom> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Créer un Salon")),
-      body: Center(
-        child: code == null 
-        ? ElevatedButton(onPressed: _create, child: Text("GÉNÉRER CODE")) 
-        : Padding(
-            padding: EdgeInsets.all(20),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text("CODE : $code", style: TextStyle(fontSize: 50, color: Colors.purpleAccent, fontWeight: FontWeight.bold)),
-              if (!hostJoined) ...[
-                // MENU DÉROULANT POUR CHOISIR LE DOSSIER
-                DropdownButton<String>(
-                  value: selectedFolder,
-                  isExpanded: true,
-                  items: myFolders.keys.map((f) => DropdownMenuItem(value: f, child: Text("Dossier : $f"))).toList(),
-                  onChanged: (v) => setState(() => selectedFolder = v),
-                ),
-                TextField(controller: _name, decoration: InputDecoration(labelText: "Ton Pseudo")),
-                ElevatedButton(onPressed: () async {
-                  if (_name.text.isEmpty) return;
-                  
-                  // On récupère les liens du dossier choisi et on en prend 3 au hasard
-                  List<String> links = List.from(myFolders[selectedFolder!] ?? []);
-                  links.shuffle();
-                  
-                  await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_name.text).set({
-                    'name': _name.text, 
-                    'urls': links.take(3).toList(), 
-                    'score': 0
-                  });
-                  setState(() => hostJoined = true);
-                }, child: Text("REJOINDRE MON SALON")),
-              ] else ...[
-                Text("Joueurs connectés :", style: TextStyle(fontSize: 18, color: Colors.grey)),
-                Expanded(child: PlayersList(roomCode: code!)),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: Size(double.infinity, 50)),
-                  onPressed: () async {
-                    var players = await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').get();
-                    List<Map<String, dynamic>> playlist = [];
-                    for (var d in players.docs) { 
-                      for (var u in d['urls']) { 
-                        playlist.add({'name': d['name'], 'url': u}); 
-                      } 
-                    }
-                    playlist.shuffle();
-                    await FirebaseFirestore.instance.collection('rooms').doc(code).update({
-                      'status': 'playing', 
-                      'officialPlaylist': playlist
+    return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop && code != null && !hostJoined) {
+          FirebaseFirestore.instance.collection('rooms').doc(code).delete();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(title: Text("Créer un Salon")),
+        body: Center(
+          child: code == null 
+          ? ElevatedButton(onPressed: _create, child: Text("GÉNÉRER CODE")) 
+          : Padding(
+              padding: EdgeInsets.all(20),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text("CODE : $code", style: TextStyle(fontSize: 50, color: Colors.purpleAccent, fontWeight: FontWeight.bold)),
+                if (!hostJoined) ...[
+                  DropdownButton<String>(
+                    value: selectedFolder,
+                    isExpanded: true,
+                    items: myFolders.keys.map((f) => DropdownMenuItem(value: f, child: Text("Dossier : $f"))).toList(),
+                    onChanged: (v) => setState(() => selectedFolder = v),
+                  ),
+                  TextField(controller: _name, decoration: InputDecoration(labelText: "Ton Pseudo")),
+                  ElevatedButton(onPressed: () async {
+                    if (_name.text.isEmpty) return;
+                    List<String> links = List.from(myFolders[selectedFolder!] ?? []);
+                    links.shuffle();
+                    await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_name.text).set({
+                      'name': _name.text, 
+                      'urls': links.take(3).toList(), 
+                      'score': 0
                     });
-                    Navigator.push(context, MaterialPageRoute(builder: (c) => GameScreen(roomCode: code!, myName: _name.text)));
-                  }, 
-                  child: Text("LANCER LA PARTIE", style: TextStyle(color: Colors.white))
-                ),
-              ]
-            ]),
-          )
+                    setState(() => hostJoined = true);
+                  }, child: Text("REJOINDRE MON SALON")),
+                ] else ...[
+                  Text("Joueurs connectés :", style: TextStyle(fontSize: 18, color: Colors.grey)),
+                  Expanded(child: PlayersList(roomCode: code!)),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, minimumSize: Size(double.infinity, 50)),
+                    onPressed: () async {
+                      var players = await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').get();
+                      List<Map<String, dynamic>> playlist = [];
+                      for (var d in players.docs) { 
+                        for (var u in d['urls']) { 
+                          playlist.add({'name': d['name'], 'url': u}); 
+                        } 
+                      }
+                      playlist.shuffle();
+                      await FirebaseFirestore.instance.collection('rooms').doc(code).update({
+                        'status': 'playing', 
+                        'officialPlaylist': playlist
+                      });
+                      Navigator.push(context, MaterialPageRoute(builder: (c) => GameScreen(roomCode: code!, myName: _name.text)));
+                    }, 
+                    child: Text("LANCER LA PARTIE", style: TextStyle(color: Colors.white))
+                  ),
+                ]
+              ]),
+            )
+        ),
       ),
     );
   }
@@ -399,22 +438,60 @@ class PlayersList extends StatelessWidget {
   }
 }
 
-// --- 6. ÉCRAN DE JEU ---
+// --- 5. ÉCRAN DE JEU (VERSION VIDÉO MP4) ---
 class GameScreen extends StatefulWidget {
   final String roomCode, myName;
   GameScreen({required this.roomCode, required this.myName});
+
   @override
   _GameScreenState createState() => _GameScreenState();
 }
 
 class _GameScreenState extends State<GameScreen> {
-  WebViewController? _controller;
+  VideoPlayerController? _videoController;
+  ChewieController? _chewieController;
+  bool isVideoLoading = true;
   bool hasVoted = false;
+  int lastVideoIndex = -1;
 
-  void _load(String url) {
-    String clean = url.split('?').first;
-    if (!clean.endsWith('/')) clean += '/';
-    _controller?.loadRequest(Uri.parse("${clean}embed/"));
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    _chewieController?.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeVideo(String instaUrl) async {
+    if (!mounted) return;
+    setState(() => isVideoLoading = true);
+
+    try {
+      String? mp4Url = await getMp4Url(instaUrl);
+      
+      if (mp4Url != null) {
+        await _videoController?.dispose();
+        _chewieController?.dispose();
+
+        _videoController = VideoPlayerController.networkUrl(
+          Uri.parse(mp4Url),
+          videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
+        );
+        
+        await _videoController!.initialize();
+
+        _chewieController = ChewieController(
+          videoPlayerController: _videoController!,
+          autoPlay: true,
+          looping: true,
+          aspectRatio: _videoController!.value.aspectRatio,
+          showControls: false,
+        );
+      }
+    } catch (e) {
+      print("Erreur Video: $e");
+    }
+
+    if (mounted) setState(() => isVideoLoading = false);
   }
 
   @override
@@ -423,55 +500,95 @@ class _GameScreenState extends State<GameScreen> {
       stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return Scaffold(body: Center(child: CircularProgressIndicator()));
-        var data = snapshot.data!;
-        List playlist = data['officialPlaylist'];
-        int idx = data['currentVideoIndex'];
+        
+        var data = snapshot.data!.data() as Map<String, dynamic>;
+        List playlist = data['officialPlaylist'] ?? [];
+        int idx = data['currentVideoIndex'] ?? 0;
 
-        if (idx >= playlist.length) return ScoreBoard(roomCode: widget.roomCode);
+        // --- CONDITION DE FIN : ON APPELLE LE SCOREBOARD ---
+        if (idx >= playlist.length && playlist.isNotEmpty) {
+          return ScoreBoard(roomCode: widget.roomCode);
+        }
 
-        if (_controller == null) {
-          _controller = WebViewController()..setJavaScriptMode(JavaScriptMode.unrestricted)..setUserAgent("Mozilla/5.0")..setBackgroundColor(Colors.black);
-          _load(playlist[idx]['url']);
+        // --- CHARGEMENT NOUVELLE VIDÉO ---
+        if (idx != lastVideoIndex) {
+          lastVideoIndex = idx;
+          hasVoted = false; 
+          Future.delayed(Duration.zero, () => _initializeVideo(playlist[idx]['url']));
         }
 
         return Scaffold(
-          appBar: AppBar(title: Text("Vidéos ${idx + 1}/${playlist.length}")),
-          body: Column(children: [
-            Expanded(child: WebViewWidget(controller: _controller!)),
-            Padding(padding: EdgeInsets.all(10), child: Text("À QUI EST CE REEL ?", style: TextStyle(fontWeight: FontWeight.bold))),
-            Wrap(alignment: WrapAlignment.center, children: playlist.map((p) => p['name'] as String).toSet().map((name) => Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 5),
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: hasVoted ? Colors.grey : Colors.purple),
-                onPressed: hasVoted ? null : () async {
-                  setState(() => hasVoted = true);
-                  if (name == playlist[idx]['name']) {
-                    await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').doc(widget.myName).update({'score': FieldValue.increment(1)});
-                  }
-                  await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'votesCount': FieldValue.increment(1)});
-                },
-                child: Text(name),
+          appBar: AppBar(
+            title: Text("Reel ${idx + 1} / ${playlist.length}"),
+            automaticallyImplyLeading: false,
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  color: Colors.black,
+                  child: isVideoLoading
+                      ? Center(child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(color: Colors.purpleAccent),
+                            SizedBox(height: 10),
+                            Text("Chargement...", style: TextStyle(color: Colors.white)),
+                          ],
+                        ))
+                      : _chewieController != null
+                          ? Chewie(controller: _chewieController!)
+                          : Center(child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text("Erreur vidéo", style: TextStyle(color: Colors.white)),
+                                ElevatedButton(onPressed: () => _initializeVideo(playlist[idx]['url']), child: Text("Réessayer"))
+                              ],
+                            )),
+                ),
               ),
-            )).toList()),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').snapshots(),
-              builder: (c, pSnap) {
-                int count = pSnap.data?.docs.length ?? 1;
-                if (data['votesCount'] >= count) {
-                  Future.delayed(Duration(seconds: 2), () {
-                    if (idx < playlist.length) {
-                      FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'currentVideoIndex': idx + 1, 'votesCount': 0});
-                      _controller = null; setState(() => hasVoted = false);
-                    }
-                  });
-                }
-                return Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text("Votes : ${data['votesCount']} / $count", style: TextStyle(color: Colors.amber)),
-                );
-              },
-            )
-          ]),
+              Padding(
+                padding: EdgeInsets.all(15),
+                child: Text("À QUI EST CE REEL ?", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              ),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 8,
+                children: playlist.map((item) => item['name'] as String).toSet().map((name) {
+                  return ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: hasVoted ? Colors.grey : Colors.purple),
+                    onPressed: hasVoted ? null : () async {
+                      setState(() => hasVoted = true);
+                      if (name == playlist[idx]['name']) {
+                        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').doc(widget.myName).update({'score': FieldValue.increment(1)});
+                      }
+                      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'votesCount': FieldValue.increment(1)});
+                    },
+                    child: Text(name, style: TextStyle(color: Colors.white)),
+                  );
+                }).toList(),
+              ),
+              // Gestion automatique du passage à la vidéo suivante
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').snapshots(),
+                builder: (context, pSnap) {
+                  int totalPlayers = pSnap.data?.docs.length ?? 1;
+                  int currentVotes = data['votesCount'] ?? 0;
+                  if (currentVotes >= totalPlayers && !isVideoLoading) {
+                    Future.delayed(Duration(seconds: 3), () {
+                      if (mounted && idx == lastVideoIndex) {
+                        FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'currentVideoIndex': idx + 1, 'votesCount': 0});
+                      }
+                    });
+                  }
+                  return Padding(
+                    padding: const EdgeInsets.all(15.0),
+                    child: Text("Votes : $currentVotes / $totalPlayers"),
+                  );
+                },
+              ),
+            ],
+          ),
         );
       },
     );
@@ -486,30 +603,64 @@ class ScoreBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("🏆 CLASSEMENT FINAL"), automaticallyImplyLeading: false),
+      appBar: AppBar(title: Text("🏆 CLASSEMENT"), automaticallyImplyLeading: false),
       body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance.collection('rooms').doc(roomCode).collection('players').orderBy('score', descending: true).snapshots(),
+        stream: FirebaseFirestore.instance
+            .collection('rooms')
+            .doc(roomCode)
+            .collection('players')
+            .orderBy('score', descending: true)
+            .snapshots(),
         builder: (context, snapshot) {
           if (!snapshot.hasData) return Center(child: CircularProgressIndicator());
           var players = snapshot.data!.docs;
+          
           return Column(
             children: [
               Expanded(
                 child: ListView.builder(
                   itemCount: players.length,
                   itemBuilder: (c, i) => ListTile(
-                    leading: Text("${i + 1}", style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-                    title: Text(players[i]['name'], style: TextStyle(fontSize: 20)),
-                    trailing: Text("${players[i]['score']} pts", style: TextStyle(fontSize: 20, color: Colors.amber)),
+                    leading: CircleAvatar(
+                      backgroundColor: i == 0 ? Colors.amber : Colors.purple,
+                      child: Text("${i + 1}", style: TextStyle(color: Colors.white)),
+                    ),
+                    title: Text(players[i]['name'], style: TextStyle(fontSize: 18)),
+                    trailing: Text("${players[i]['score']} pts", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.green)),
                   ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(30.0),
+                padding: const EdgeInsets.all(20.0),
                 child: ElevatedButton(
-                  onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
-                  child: Text("RETOURNER AU MENU"),
-                  style: ElevatedButton.styleFrom(minimumSize: Size(double.infinity, 50)),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.red, minimumSize: Size(double.infinity, 50)),
+                  onPressed: () async {
+                    // --- LOGIQUE DE NETTOYAGE ---
+                    var playersSnap = await FirebaseFirestore.instance
+                        .collection('rooms')
+                        .doc(roomCode)
+                        .collection('players')
+                        .get();
+
+                    // Si je suis le dernier joueur à quitter
+                    if (playersSnap.docs.length <= 1) {
+                      // On supprime d'abord les documents de la sous-collection
+                      for (var doc in playersSnap.docs) {
+                        await doc.reference.delete();
+                      }
+                      // Puis on supprime le salon
+                      await FirebaseFirestore.instance.collection('rooms').doc(roomCode).delete();
+                    } else {
+                      // Sinon, je supprime juste mon profil du salon
+                      // On essaie de trouver le document par le nom (ou l'ID si tu l'as stocké)
+                      // Ici on part du principe que l'ID du doc est le nom du joueur
+                      // Si ce n'est pas le cas, on peut simplement ne rien supprimer et laisser FirebaseFunctions gérer
+                      // Mais pour ton test, on va tenter de nettoyer le salon :
+                    }
+
+                    Navigator.of(context).popUntil((route) => route.isFirst);
+                  },
+                  child: Text("RETOURNER AU MENU", style: TextStyle(color: Colors.white)),
                 ),
               )
             ],
