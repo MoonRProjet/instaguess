@@ -65,7 +65,7 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 
 ## 👤 Auteur
 
-* **[TON NOM/PSEUDO]** - *Développeur Principal* - [@TonProfilGithub](https://github.com/[TON_PSEUDO])
+* **MoonRiise** - *Développeur Principal* - [@MoonRProjet](https://github.com/MoonRProjet)
 
 ---
 📦 *Projet réalisé dans le cadre d'un apprentissage sur le développement mobile hybride et le temps réel.*
