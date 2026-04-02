@@ -2,6 +2,8 @@
 
 **InstaGuess** est une application mobile de divertissement social développée avec **Flutter** et **Firebase**. Le concept est simple : défiez vos amis dans un jeu de devinettes basé sur vos Reels Instagram préférés.
 
+![Accueil](screenshots/InstaGuess.png)
+
 ---
 
 ## 🎮 Le Concept
