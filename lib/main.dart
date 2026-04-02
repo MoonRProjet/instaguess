@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
 import 'package:url_launcher/url_launcher.dart';
@@ -10,11 +9,12 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 Future<String?> getMp4Url(String instagramUrl) async {
   var headers = {
     'Content-Type': 'application/json',
-    'x-rapidapi-key': 'f7a127bc67msh305c85913d9ffecp16cd53jsn7942f8ca8270', // Remplace par ta clé
+    'x-rapidapi-key': dotenv.env['RAPIDAPI_KEY'] ?? '', // On récupère la clé ici
     'x-rapidapi-host': 'instagram120.p.rapidapi.com'
   };
 
@@ -40,13 +40,18 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
     await Firebase.initializeApp();
+    
+    // --- AJOUT DE CETTE LIGNE ---
+    await dotenv.load(fileName: ".env"); 
+    // ----------------------------
+
     runApp(MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.purple, brightness: Brightness.dark, useMaterial3: true),
       home: HomeScreen(),
     ));
   } catch (e) {
-    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Erreur Firebase : $e")))));
+    runApp(MaterialApp(home: Scaffold(body: Center(child: Text("Erreur : $e")))));
   }
 }
 
@@ -479,13 +484,15 @@ class _GameScreenState extends State<GameScreen> {
         
         await _videoController!.initialize();
 
-        _chewieController = ChewieController(
-          videoPlayerController: _videoController!,
-          autoPlay: true,
-          looping: true,
-          aspectRatio: _videoController!.value.aspectRatio,
-          showControls: false,
-        );
+        if (mounted) {
+          _chewieController = ChewieController(
+            videoPlayerController: _videoController!,
+            autoPlay: true,
+            looping: true,
+            aspectRatio: _videoController!.value.aspectRatio,
+            showControls: false,
+          );
+        }
       }
     } catch (e) {
       print("Erreur Video: $e");
@@ -499,9 +506,19 @@ class _GameScreenState extends State<GameScreen> {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).snapshots(),
       builder: (context, snapshot) {
+        // --- CORRECTION : SI LE SALON N'EXISTE PLUS, ON QUITTE ---
+        if (snapshot.hasData && !snapshot.data!.exists) {
+          Future.delayed(Duration.zero, () {
+            if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
+          });
+          return Scaffold(body: Center(child: CircularProgressIndicator()));
+        }
+
         if (!snapshot.hasData) return Scaffold(body: Center(child: CircularProgressIndicator()));
         
-        var data = snapshot.data!.data() as Map<String, dynamic>;
+        var data = snapshot.data!.data() as Map<String, dynamic>?;
+        if (data == null) return Scaffold(body: Center(child: CircularProgressIndicator()));
+
         List playlist = data['officialPlaylist'] ?? [];
         int idx = data['currentVideoIndex'] ?? 0;
 
@@ -568,10 +585,10 @@ class _GameScreenState extends State<GameScreen> {
                   );
                 }).toList(),
               ),
-              // Gestion automatique du passage à la vidéo suivante
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').snapshots(),
                 builder: (context, pSnap) {
+                  if (!pSnap.hasData) return Container();
                   int totalPlayers = pSnap.data?.docs.length ?? 1;
                   int currentVotes = data['votesCount'] ?? 0;
                   if (currentVotes >= totalPlayers && !isVideoLoading) {
