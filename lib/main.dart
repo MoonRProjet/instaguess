@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:math';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,7 +49,7 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-// --- 2. COFFRE-FORT ---
+// --- 2. COFFRE-FORT (Version Cliquable) ---
 class LinkManager extends StatefulWidget {
   @override
   _LinkManagerState createState() => _LinkManagerState();
@@ -60,8 +61,27 @@ class _LinkManagerState extends State<LinkManager> {
 
   @override
   void initState() { super.initState(); _load(); }
-  void _load() async { SharedPreferences p = await SharedPreferences.getInstance(); setState(() => myLinks = p.getStringList('saved_reels') ?? []); }
-  void _save() async { SharedPreferences p = await SharedPreferences.getInstance(); p.setStringList('saved_reels', myLinks); }
+  
+  void _load() async { 
+    SharedPreferences p = await SharedPreferences.getInstance(); 
+    setState(() => myLinks = p.getStringList('saved_reels') ?? []); 
+  }
+  
+  void _save() async { 
+    SharedPreferences p = await SharedPreferences.getInstance(); 
+    p.setStringList('saved_reels', myLinks); 
+  }
+
+  // Fonction pour ouvrir le lien
+  Future<void> _launchReel(String urlString) async {
+    final Uri url = Uri.parse(urlString);
+    // mode: LaunchMode.externalApplication permet d'ouvrir directement l'app Instagram
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Impossible d'ouvrir ce lien"), backgroundColor: Colors.red),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -70,9 +90,37 @@ class _LinkManagerState extends State<LinkManager> {
       body: Column(children: [
         Padding(padding: EdgeInsets.all(10), child: Row(children: [
           Expanded(child: TextField(controller: _ctrl, decoration: InputDecoration(hintText: "Lien Instagram"))),
-          IconButton(icon: Icon(Icons.add), onPressed: () { if(_ctrl.text.contains("insta")) { setState(() => myLinks.add(_ctrl.text.trim())); _ctrl.clear(); _save(); } })
+          IconButton(
+            icon: Icon(Icons.add, color: Colors.green), 
+            onPressed: () { 
+              if(_ctrl.text.contains("insta")) { 
+                setState(() => myLinks.add(_ctrl.text.trim())); 
+                _ctrl.clear(); 
+                _save(); 
+              } 
+            }
+          )
         ])),
-        Expanded(child: ListView.builder(itemCount: myLinks.length, itemBuilder: (c, i) => ListTile(title: Text("Reel ${i+1}"), trailing: IconButton(icon: Icon(Icons.delete), onPressed: () { setState(() => myLinks.removeAt(i)); _save(); }))))
+        Expanded(
+          child: ListView.builder(
+            itemCount: myLinks.length, 
+            itemBuilder: (c, i) => ListTile(
+              leading: Icon(Icons.play_circle_fill, color: Colors.purpleAccent),
+              title: Text("Reel ${i+1}", style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: Text(myLinks[i], maxLines: 1, overflow: TextOverflow.ellipsis),
+              // --- ACTION CLIC ---
+              onTap: () => _launchReel(myLinks[i]),
+              // ------------------
+              trailing: IconButton(
+                icon: Icon(Icons.delete, color: Colors.red), 
+                onPressed: () { 
+                  setState(() => myLinks.removeAt(i)); 
+                  _save(); 
+                }
+              )
+            )
+          )
+        )
       ]),
     );
   }
