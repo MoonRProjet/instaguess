@@ -1,4 +1,4 @@
-# 📸 InstaGuess
+# 📸 InstaGuess - v1.3.0
 
 **InstaGuess** est une application mobile de divertissement social développée avec **Flutter** et **Firebase**. Le concept est simple : défiez vos amis dans un jeu de devinettes basé sur vos Reels Instagram préférés.
 
@@ -11,13 +11,14 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 
 ---
 
-## ✨ Fonctionnalités Actuelles
+## ✨ Fonctionnalités (v1.3.0)
 
-* **🔒 Coffre-fort Personnel** : Sauvegardez vos pépites Instagram localement sur votre téléphone.
+* **🎥 Lecteur MP4 Natif** : Plus de WebView ! Les vidéos sont converties via API pour une lecture fluide, sans publicité et sans besoin de connexion Instagram pour les joueurs.
+* **📂 Multi-Coffres (Dossiers)** : Organisez vos pépites par thématiques (Humour, Sport, Cuisine) et choisissez quel dossier jouer lors de la création du salon.
 * **🏠 Système de Salons (Lobby)** : Créez ou rejoignez une partie avec un code unique à 4 lettres.
-* **⚡ Synchronisation en Temps Réel** : Grâce à Firestore, tous les joueurs voient la même vidéo et les mêmes scores au même moment.
-* **🏆 Classement Final** : Un tableau des scores automatique s'affiche à la fin de la playlist pour désigner le vainqueur.
-* **🌐 Intégration WebView** : Lecture directe des contenus Instagram via un navigateur embarqué optimisé.
+* **⚡ Synchronisation en Temps Réel** : Grâce à Firestore, tous les joueurs voient la même vidéo et votent simultanément.
+* **🧹 Nettoyage Automatique** : Gestion intelligente de la base de données Firestore (suppression des salons vides ou terminés).
+* **🏆 Classement Final** : Un podium automatique désigne le vainqueur à la fin de la playlist.
 
 ---
 
@@ -25,10 +26,10 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 
 * **Framework** : [Flutter](https://flutter.dev/) (Dart)
 * **Backend** : [Firebase](https://firebase.google.com/)
-    * **Firestore** : Gestion des salons, des joueurs et des scores.
-    * **Core** : Initialisation et liaison du projet.
-* **Stockage Local** : `shared_preferences` pour le coffre-fort.
-* **Navigation Web** : `webview_flutter` pour l'affichage des Reels.
+    * **Firestore** : Gestion des salons, des joueurs, des scores et de la playlist officielle.
+* **API Vidéo** : Intégration via **RapidAPI** (Instagram Video Downloader) pour l'extraction des flux `.mp4`.
+* **Lecteur Vidéo** : `video_player` & `chewie` pour une interface de lecture native.
+* **Stockage Local** : `shared_preferences` pour la persistance des dossiers et des liens.
 
 ---
 
@@ -36,7 +37,7 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 
 1.  **Cloner le projet** :
     ```bash
-    git clone [https://github.com/](https://github.com/)[TON_PSEUDO]/instaguess.git
+    git clone [https://github.com/MoonRProjet/instaguess.git](https://github.com/MoonRProjet/instaguess.git)
     cd instaguess
     ```
 
@@ -45,9 +46,9 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
     flutter pub get
     ```
 
-3.  **Configuration Firebase** :
-    * Ajouter votre fichier `google-services.json` dans `android/app/`.
-    * (Optionnel) Ajouter `GoogleService-Info.plist` pour iOS.
+3.  **Configuration API & Firebase** :
+    * Ajoutez votre clé **RapidAPI** dans la fonction `getMp4Url()`.
+    * Ajoutez votre fichier `google-services.json` dans `android/app/`.
 
 4.  **Lancer l'application** :
     ```bash
@@ -58,10 +59,10 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 
 ## 📈 Évolutions à venir (Roadmap)
 
-- [ ] **Multi-Coffres** : Création de dossiers thématiques (Humour, Sport, etc.).
-- [ ] **Lecteur MP4 Direct** : Intégration d'une API pour s'affranchir de la connexion Instagram.
+- [x] **Multi-Coffres** : Création de dossiers thématiques (v1.2.0).
+- [x] **Lecteur MP4 Direct** : Intégration d'une API de conversion (v1.3.0).
 - [ ] **Timer** : Ajouter une limite de temps de 15s pour voter.
-- [ ] **Liens Cliquables** : Possibilité de prévisualiser ses liens dans le coffre-fort.
+- [ ] **Effets visuels** : Ajout de confettis et animations pour le podium final.
 
 ---
 
@@ -70,4 +71,4 @@ Chaque joueur prépare son "Coffre-fort" de Reels. Une fois dans un salon multi-
 * **MoonRiise** - *Développeur Principal* - [@MoonRProjet](https://github.com/MoonRProjet)
 
 ---
-📦 *Projet réalisé dans le cadre d'un apprentissage sur le développement mobile hybride et le temps réel.*
+📦 *Projet réalisé dans le cadre d'un apprentissage sur le développement mobile hybride, le streaming vidéo et le temps réel.*
