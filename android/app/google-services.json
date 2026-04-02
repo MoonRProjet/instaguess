@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "660057993612",
+    "project_id": "instaguess-172e0",
+    "storage_bucket": "instaguess-172e0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:660057993612:android:4b7b487325e494135f66a9",
+        "android_client_info": {
+          "package_name": "com.moonriise.instaguess"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAQAwTEmRF6YpbSFVd9AuNj8lFbNeBnEkw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
