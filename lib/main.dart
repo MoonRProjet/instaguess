@@ -210,6 +210,9 @@ class _CreateRoomState extends State<CreateRoom> {
   bool hostJoined = false;
   Map<String, List<String>> myFolders = {};
   String? selectedFolder;
+  
+  // --- NOUVEAU : Variable pour la limite ---
+  double videoLimit = 3.0; 
 
   @override
   void initState() {
@@ -217,7 +220,6 @@ class _CreateRoomState extends State<CreateRoom> {
     _loadFolders();
   }
 
-  // Nettoyage automatique si on quitte l'écran ou ferme l'app
   @override
   void dispose() {
     if (code != null && !hostJoined) {
@@ -238,7 +240,7 @@ class _CreateRoomState extends State<CreateRoom> {
     String c = List.generate(4, (i) => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Random().nextInt(32)]).join();
     await FirebaseFirestore.instance.collection('rooms').doc(c).set({
       'status': 'waiting',
-      'videoLimit': 3,
+      'videoLimit': videoLimit.toInt(), // On enregistre la limite choisie
       'currentVideoIndex': 0,
       'votesCount': 0,
       'officialPlaylist': []
@@ -259,7 +261,22 @@ class _CreateRoomState extends State<CreateRoom> {
         appBar: AppBar(title: Text("Créer un Salon")),
         body: Center(
           child: code == null 
-          ? ElevatedButton(onPressed: _create, child: Text("GÉNÉRER CODE")) 
+          ? Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text("Nombre de vidéos par joueur : ${videoLimit.toInt()}", style: TextStyle(fontSize: 18)),
+                Slider(
+                  value: videoLimit,
+                  min: 1,
+                  max: 5,
+                  divisions: 4,
+                  label: videoLimit.toInt().toString(),
+                  onChanged: (v) => setState(() => videoLimit = v),
+                ),
+                SizedBox(height: 20),
+                ElevatedButton(onPressed: _create, child: Text("GÉNÉRER CODE")),
+              ],
+            )
           : Padding(
               padding: EdgeInsets.all(20),
               child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -276,9 +293,11 @@ class _CreateRoomState extends State<CreateRoom> {
                     if (_name.text.isEmpty) return;
                     List<String> links = List.from(myFolders[selectedFolder!] ?? []);
                     links.shuffle();
+                    
+                    // On utilise la limite choisie ici aussi
                     await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(_name.text).set({
                       'name': _name.text, 
-                      'urls': links.take(3).toList(), 
+                      'urls': links.take(videoLimit.toInt()).toList(), 
                       'score': 0
                     });
                     setState(() => hostJoined = true);
@@ -323,8 +342,6 @@ class JoinRoom extends StatefulWidget {
 class _JoinRoomState extends State<JoinRoom> {
   final TextEditingController _c = TextEditingController();
   final TextEditingController _n = TextEditingController();
-  
-  // Nouveaux champs pour les dossiers
   Map<String, List<String>> myFolders = {};
   String? selectedFolder;
 
@@ -352,8 +369,6 @@ class _JoinRoomState extends State<JoinRoom> {
           TextField(controller: _c, decoration: InputDecoration(labelText: "Code")),
           TextField(controller: _n, decoration: InputDecoration(labelText: "Pseudo")),
           SizedBox(height: 10),
-          
-          // MENU DÉROULANT POUR L'INVITÉ
           if (myFolders.isNotEmpty)
             DropdownButton<String>(
               value: selectedFolder,
@@ -361,26 +376,29 @@ class _JoinRoomState extends State<JoinRoom> {
               items: myFolders.keys.map((f) => DropdownMenuItem(value: f, child: Text("Dossier : $f"))).toList(),
               onChanged: (v) => setState(() => selectedFolder = v),
             ),
-            
           SizedBox(height: 20),
           ElevatedButton(onPressed: () async {
             String code = _c.text.toUpperCase();
             String pseudo = _n.text.trim();
             if (code.isEmpty || pseudo.isEmpty) return;
 
-            var room = await FirebaseFirestore.instance.collection('rooms').doc(code).get();
-            if (!room.exists) {
+            // 1. On récupère le salon
+            var roomDoc = await FirebaseFirestore.instance.collection('rooms').doc(code).get();
+            if (!roomDoc.exists) {
                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Salon introuvable")));
                return;
             }
 
-            // On récupère les liens du dossier sélectionné
+            // 2. On récupère la limite fixée par l'hôte
+            int limit = roomDoc.data()?['videoLimit'] ?? 3;
+
             List<String> links = List.from(myFolders[selectedFolder!] ?? []);
             links.shuffle();
 
+            // 3. On applique la limite dynamique
             await FirebaseFirestore.instance.collection('rooms').doc(code).collection('players').doc(pseudo).set({
               'name': pseudo, 
-              'urls': links.take(3).toList(), 
+              'urls': links.take(limit).toList(), 
               'score': 0
             });
             
