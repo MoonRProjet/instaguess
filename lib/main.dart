@@ -489,7 +489,6 @@ class _GameScreenState extends State<GameScreen> {
     if (!mounted) return;
     setState(() {
       isVideoLoading = true;
-      startTime = DateTime.now(); 
     });
 
     try {
@@ -510,6 +509,8 @@ class _GameScreenState extends State<GameScreen> {
             aspectRatio: _videoController!.value.aspectRatio,
             showControls: false,
           );
+          // On déclenche le chrono SEULEMENT quand la vidéo commence vraiment
+          startTime = DateTime.now(); 
         }
       }
     } catch (e) {
@@ -565,7 +566,6 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
               
-              // --- ZONE DE RÉVÉLATION ET SCORES ---
               Container(
                 padding: EdgeInsets.all(15),
                 width: double.infinity,
@@ -584,7 +584,6 @@ class _GameScreenState extends State<GameScreen> {
                         style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.w900),
                       ),
                       SizedBox(height: 10),
-                      // Mini-classement en temps réel
                       StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance
                             .collection('rooms')
@@ -623,14 +622,24 @@ class _GameScreenState extends State<GameScreen> {
                         ),
                         onPressed: hasVoted ? null : () async {
                           setState(() => hasVoted = true);
+                          
                           if (name == playlist[idx]['name']) {
+                            // --- CALCUL DU BONUS DE RAPIDITÉ ---
+                            int pointsGagnes = 1;
+                            if (startTime != null) {
+                              int diff = DateTime.now().difference(startTime!).inSeconds;
+                              if (diff <= 3) pointsGagnes = 3; // Ultra rapide
+                              else if (diff <= 7) pointsGagnes = 2; // Rapide
+                            }
+
                             await FirebaseFirestore.instance
                                 .collection('rooms')
                                 .doc(widget.roomCode)
                                 .collection('players')
                                 .doc(widget.myName)
-                                .update({'score': FieldValue.increment(1)});
+                                .update({'score': FieldValue.increment(pointsGagnes)});
                           }
+
                           await FirebaseFirestore.instance
                               .collection('rooms')
                               .doc(widget.roomCode)
@@ -642,7 +651,6 @@ class _GameScreenState extends State<GameScreen> {
                   ),
                 ),
 
-              // --- LOGIQUE DE TRANSITION ---
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
                     .collection('rooms')
@@ -660,7 +668,6 @@ class _GameScreenState extends State<GameScreen> {
                           .doc(widget.roomCode)
                           .update({'showResult': true});
                       
-                      // Pause de 5 secondes avant la vidéo suivante
                       Future.delayed(Duration(seconds: 5), () {
                         if (mounted && idx == lastVideoIndex) {
                           FirebaseFirestore.instance
