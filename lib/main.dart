@@ -476,6 +476,7 @@ class _GameScreenState extends State<GameScreen> {
   bool isVideoLoading = true;
   bool hasVoted = false;
   int lastVideoIndex = -1;
+  DateTime? startTime; 
 
   @override
   void dispose() {
@@ -486,22 +487,21 @@ class _GameScreenState extends State<GameScreen> {
 
   Future<void> _initializeVideo(String instaUrl) async {
     if (!mounted) return;
-    setState(() => isVideoLoading = true);
+    setState(() {
+      isVideoLoading = true;
+      startTime = DateTime.now(); 
+    });
 
     try {
       String? mp4Url = await getMp4Url(instaUrl);
-      
       if (mp4Url != null) {
         await _videoController?.dispose();
         _chewieController?.dispose();
-
         _videoController = VideoPlayerController.networkUrl(
           Uri.parse(mp4Url),
           videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
         );
-        
         await _videoController!.initialize();
-
         if (mounted) {
           _chewieController = ChewieController(
             videoPlayerController: _videoController!,
@@ -515,7 +515,6 @@ class _GameScreenState extends State<GameScreen> {
     } catch (e) {
       print("Erreur Video: $e");
     }
-
     if (mounted) setState(() => isVideoLoading = false);
   }
 
@@ -524,7 +523,6 @@ class _GameScreenState extends State<GameScreen> {
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).snapshots(),
       builder: (context, snapshot) {
-        // --- CORRECTION : SI LE SALON N'EXISTE PLUS, ON QUITTE ---
         if (snapshot.hasData && !snapshot.data!.exists) {
           Future.delayed(Duration.zero, () {
             if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
@@ -533,19 +531,16 @@ class _GameScreenState extends State<GameScreen> {
         }
 
         if (!snapshot.hasData) return Scaffold(body: Center(child: CircularProgressIndicator()));
+        var data = snapshot.data!.data() as Map<String, dynamic>;
         
-        var data = snapshot.data!.data() as Map<String, dynamic>?;
-        if (data == null) return Scaffold(body: Center(child: CircularProgressIndicator()));
-
         List playlist = data['officialPlaylist'] ?? [];
         int idx = data['currentVideoIndex'] ?? 0;
+        bool showResult = data['showResult'] ?? false;
 
-        // --- CONDITION DE FIN : ON APPELLE LE SCOREBOARD ---
         if (idx >= playlist.length && playlist.isNotEmpty) {
           return ScoreBoard(roomCode: widget.roomCode);
         }
 
-        // --- CHARGEMENT NOUVELLE VIDÉO ---
         if (idx != lastVideoIndex) {
           lastVideoIndex = idx;
           hasVoted = false; 
@@ -563,62 +558,129 @@ class _GameScreenState extends State<GameScreen> {
                 child: Container(
                   color: Colors.black,
                   child: isVideoLoading
-                      ? Center(child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(color: Colors.purpleAccent),
-                            SizedBox(height: 10),
-                            Text("Chargement...", style: TextStyle(color: Colors.white)),
-                          ],
-                        ))
+                      ? Center(child: CircularProgressIndicator(color: Colors.purpleAccent))
                       : _chewieController != null
                           ? Chewie(controller: _chewieController!)
-                          : Center(child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text("Erreur vidéo", style: TextStyle(color: Colors.white)),
-                                ElevatedButton(onPressed: () => _initializeVideo(playlist[idx]['url']), child: Text("Réessayer"))
-                              ],
-                            )),
+                          : Center(child: Text("Erreur vidéo")),
                 ),
               ),
-              Padding(
+              
+              // --- ZONE DE RÉVÉLATION ET SCORES ---
+              Container(
                 padding: EdgeInsets.all(15),
-                child: Text("À QUI EST CE REEL ?", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  color: showResult ? Colors.purple.withOpacity(0.9) : Colors.transparent,
+                ),
+                child: Column(
+                  children: [
+                    Text(
+                      showResult ? "C'ÉTAIT LE REEL DE :" : "À QUI EST CE REEL ?",
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white70),
+                    ),
+                    if (showResult) ...[
+                      Text(
+                        "${playlist[idx]['name']}",
+                        style: TextStyle(fontSize: 28, color: Colors.white, fontWeight: FontWeight.w900),
+                      ),
+                      SizedBox(height: 10),
+                      // Mini-classement en temps réel
+                      StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('rooms')
+                            .doc(widget.roomCode)
+                            .collection('players')
+                            .orderBy('score', descending: true)
+                            .snapshots(),
+                        builder: (context, pSnap) {
+                          if (!pSnap.hasData) return Container();
+                          return Column(
+                            children: pSnap.data!.docs.map((p) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text(
+                                "${p['name']} : ${p['score']} pts", 
+                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)
+                              ),
+                            )).toList(),
+                          );
+                        }
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 8,
-                children: playlist.map((item) => item['name'] as String).toSet().map((name) {
-                  return ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: hasVoted ? Colors.grey : Colors.purple),
-                    onPressed: hasVoted ? null : () async {
-                      setState(() => hasVoted = true);
-                      if (name == playlist[idx]['name']) {
-                        await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').doc(widget.myName).update({'score': FieldValue.increment(1)});
-                      }
-                      await FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'votesCount': FieldValue.increment(1)});
-                    },
-                    child: Text(name, style: TextStyle(color: Colors.white)),
-                  );
-                }).toList(),
-              ),
+
+              if (!showResult)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  child: Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    children: playlist.map((item) => item['name'] as String).toSet().map((name) {
+                      return ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: hasVoted ? Colors.grey : Colors.purple,
+                        ),
+                        onPressed: hasVoted ? null : () async {
+                          setState(() => hasVoted = true);
+                          if (name == playlist[idx]['name']) {
+                            await FirebaseFirestore.instance
+                                .collection('rooms')
+                                .doc(widget.roomCode)
+                                .collection('players')
+                                .doc(widget.myName)
+                                .update({'score': FieldValue.increment(1)});
+                          }
+                          await FirebaseFirestore.instance
+                              .collection('rooms')
+                              .doc(widget.roomCode)
+                              .update({'votesCount': FieldValue.increment(1)});
+                        },
+                        child: Text(name, style: TextStyle(color: Colors.white)),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+              // --- LOGIQUE DE TRANSITION ---
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).collection('players').snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('rooms')
+                    .doc(widget.roomCode)
+                    .collection('players')
+                    .snapshots(),
                 builder: (context, pSnap) {
-                  if (!pSnap.hasData) return Container();
                   int totalPlayers = pSnap.data?.docs.length ?? 1;
                   int currentVotes = data['votesCount'] ?? 0;
-                  if (currentVotes >= totalPlayers && !isVideoLoading) {
-                    Future.delayed(Duration(seconds: 3), () {
-                      if (mounted && idx == lastVideoIndex) {
-                        FirebaseFirestore.instance.collection('rooms').doc(widget.roomCode).update({'currentVideoIndex': idx + 1, 'votesCount': 0});
-                      }
+
+                  if (currentVotes >= totalPlayers && !showResult && !isVideoLoading) {
+                    Future.delayed(Duration.zero, () {
+                      FirebaseFirestore.instance
+                          .collection('rooms')
+                          .doc(widget.roomCode)
+                          .update({'showResult': true});
+                      
+                      // Pause de 5 secondes avant la vidéo suivante
+                      Future.delayed(Duration(seconds: 5), () {
+                        if (mounted && idx == lastVideoIndex) {
+                          FirebaseFirestore.instance
+                              .collection('rooms')
+                              .doc(widget.roomCode)
+                              .update({
+                            'currentVideoIndex': idx + 1, 
+                            'votesCount': 0,
+                            'showResult': false
+                          });
+                        }
+                      });
                     });
                   }
                   return Padding(
-                    padding: const EdgeInsets.all(15.0),
-                    child: Text("Votes : $currentVotes / $totalPlayers"),
+                    padding: const EdgeInsets.all(10.0),
+                    child: Text(
+                      "Votes : $currentVotes / $totalPlayers", 
+                      style: TextStyle(color: Colors.grey)
+                    ),
                   );
                 },
               ),
